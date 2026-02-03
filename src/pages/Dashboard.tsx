@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTasks } from '@/hooks/useTasks';
@@ -6,6 +6,7 @@ import { Task, CreateTaskInput } from '@/types/task';
 import { TaskList } from '@/components/TaskList';
 import { TaskDialog } from '@/components/TaskDialog';
 import { TaskStats } from '@/components/TaskStats';
+import { AIAssistant } from '@/components/AIAssistant';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,7 +23,7 @@ import {
   Sparkles,
   Loader2,
 } from 'lucide-react';
-import { useEffect } from 'react';
+
 
 const Dashboard = () => {
   const { user, signOut, loading: authLoading } = useAuth();
@@ -147,6 +148,11 @@ const Dashboard = () => {
           <p className="text-muted-foreground">
             Here&apos;s what&apos;s on your plate today. Let&apos;s get things done!
           </p>
+        </div>
+
+        {/* AI Assistant */}
+        <div className="mb-8">
+          <AIAssistant tasks={tasks} />
         </div>
 
         {/* Stats */}

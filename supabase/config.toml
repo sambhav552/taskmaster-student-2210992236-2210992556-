@@ -1,1 +1,7 @@
 project_id = "ohkqkkjyuvhooopiuflb"
+
+[functions.ai-task-assistant]
+verify_jwt = false
+
+[functions.send-task-reminders]
+verify_jwt = false

@@ -48,6 +48,18 @@ interface Profile {
   full_name: string | null;
 }
 
+// Sanitize text to prevent XSS in emails
+function sanitizeForHtml(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+    .slice(0, 500); // Limit length
+}
+
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -55,6 +67,35 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
+    // Authentication: This function should only be called by pg_cron or with a valid secret
+    // Check for internal cron call (no auth header) or valid function secret
+    const authHeader = req.headers.get("Authorization");
+    const functionSecret = req.headers.get("X-Function-Secret");
+    const expectedSecret = Deno.env.get("FUNCTION_SECRET");
+    
+    // If called externally (has auth header or function secret header), validate
+    if (authHeader || functionSecret) {
+      // If function secret is provided, validate it
+      if (functionSecret) {
+        if (!expectedSecret || functionSecret !== expectedSecret) {
+          console.error("Invalid function secret provided");
+          return new Response(
+            JSON.stringify({ error: "Unauthorized" }),
+            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } else if (authHeader) {
+        // If only auth header, this is not a valid way to call this function
+        // This function should be called via cron or with function secret
+        console.error("Direct user authentication not allowed for this function");
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // If no auth headers at all, this is likely a pg_cron internal call - allow it
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
@@ -64,13 +105,15 @@ serve(async (req: Request): Promise<Response> => {
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     
+    // Limit the number of tasks to process to prevent resource exhaustion
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
       .select("*")
       .eq("reminder_sent", false)
       .neq("status", "completed")
       .gte("due_date", now.toISOString())
-      .lte("due_date", tomorrow.toISOString());
+      .lte("due_date", tomorrow.toISOString())
+      .limit(500); // Prevent processing too many tasks at once
 
     if (tasksError) {
       console.error("Error fetching tasks:", tasksError);
@@ -120,11 +163,11 @@ serve(async (req: Request): Promise<Response> => {
             hour: "2-digit",
             minute: "2-digit",
           });
-          return `• ${task.title} (Due: ${dueDate}, Priority: ${task.priority})`;
+          return `• ${sanitizeForHtml(task.title)} (Due: ${dueDate}, Priority: ${sanitizeForHtml(task.priority)})`;
         })
         .join("\n");
 
-      const userName = profile.full_name || "Student";
+      const userName = sanitizeForHtml(profile.full_name) || "Student";
 
       try {
         const emailHtml = `
@@ -149,9 +192,9 @@ serve(async (req: Request): Promise<Response> => {
 
         emailsSent++;
         taskIdsToUpdate.push(...(userTasks as Task[]).map((t) => t.id));
-        console.log(`Sent reminder email to ${profile.email} for ${(userTasks as Task[]).length} tasks`);
+        console.log(`Sent reminder email to user for ${(userTasks as Task[]).length} tasks`);
       } catch (sendError) {
-        console.error(`Error sending email to ${profile.email}:`, sendError);
+        console.error(`Error sending email:`, sendError);
       }
     }
 
@@ -169,9 +212,8 @@ serve(async (req: Request): Promise<Response> => {
 
     return new Response(
       JSON.stringify({ 
-        message: `Sent ${emailsSent} reminder email(s)`,
-        sent: emailsSent,
-        tasksReminded: taskIdsToUpdate.length
+        message: "Reminders processed successfully",
+        sent: emailsSent
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -128,7 +128,7 @@ Provide 3-5 specific subtasks that are actionable and measurable. Format as a nu
     console.error("Error in ai-task-assistant:", errorMessage);
     
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "Failed to process your request. Please try again later." }),
       {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },

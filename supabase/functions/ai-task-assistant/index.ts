@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 // Allowed origins for CORS - restrict to legitimate domains
 const allowedOrigins = [
@@ -17,21 +19,31 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  priority: string;
-  status: string;
-  due_date: string | null;
-  category: string | null;
-}
+// Input validation schema
+const TaskSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().max(200, "Title too long"),
+  description: z.string().max(1000, "Description too long").nullable(),
+  priority: z.string().max(20),
+  status: z.string().max(20),
+  due_date: z.string().nullable(),
+  category: z.string().max(50).nullable(),
+});
 
-interface AIRequest {
-  action: "suggest" | "prioritize" | "breakdown";
-  tasks?: Task[];
-  taskTitle?: string;
-  taskDescription?: string;
+const RequestSchema = z.object({
+  action: z.enum(["suggest", "prioritize", "breakdown"]),
+  tasks: z.array(TaskSchema).max(100, "Too many tasks").optional(),
+  taskTitle: z.string().max(200, "Title too long").optional(),
+  taskDescription: z.string().max(1000, "Description too long").optional(),
+});
+
+// Sanitize text for prompt injection prevention
+function sanitizeForPrompt(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .slice(0, 500) // Limit length
+    .replace(/[<>{}[\]\\]/g, "") // Remove special characters
+    .trim();
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -43,9 +55,46 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { action, tasks, taskTitle, taskDescription }: AIRequest = await req.json();
+    // Authentication check
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
 
-    console.log(`AI Assistant action: ${action}`);
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Invalid token" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    // Input validation
+    let validatedInput;
+    try {
+      const body = await req.json();
+      validatedInput = RequestSchema.parse(body);
+    } catch (validationError) {
+      console.error("Validation error:", validationError);
+      return new Response(
+        JSON.stringify({ error: "Invalid request format" }),
+        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    const { action, tasks, taskTitle, taskDescription } = validatedInput;
+
+    console.log(`AI Assistant action: ${action} for user: ${user.id}`);
 
     let prompt = "";
     
@@ -54,7 +103,7 @@ serve(async (req: Request): Promise<Response> => {
         prompt = `You are a helpful study assistant for students. Based on the following tasks, provide 3 actionable suggestions to help the student be more productive and manage their time better.
 
 Current tasks:
-${tasks?.map(t => `- ${t.title} (Priority: ${t.priority}, Status: ${t.status}, Due: ${t.due_date || 'No deadline'})`).join('\n') || 'No tasks yet'}
+${tasks?.map(t => `- ${sanitizeForPrompt(t.title)} (Priority: ${sanitizeForPrompt(t.priority)}, Status: ${sanitizeForPrompt(t.status)}, Due: ${t.due_date || 'No deadline'})`).join('\n') || 'No tasks yet'}
 
 Provide brief, actionable suggestions in a friendly tone. Format as a numbered list.`;
         break;
@@ -63,7 +112,7 @@ Provide brief, actionable suggestions in a friendly tone. Format as a numbered l
         prompt = `You are a study planning expert. Analyze these student tasks and suggest the optimal order to tackle them based on urgency, importance, and deadlines.
 
 Tasks:
-${tasks?.map(t => `- ${t.title} (Priority: ${t.priority}, Status: ${t.status}, Due: ${t.due_date || 'No deadline'}, Category: ${t.category || 'General'})`).join('\n') || 'No tasks'}
+${tasks?.map(t => `- ${sanitizeForPrompt(t.title)} (Priority: ${sanitizeForPrompt(t.priority)}, Status: ${sanitizeForPrompt(t.status)}, Due: ${t.due_date || 'No deadline'}, Category: ${sanitizeForPrompt(t.category) || 'General'})`).join('\n') || 'No tasks'}
 
 Provide a prioritized order with brief reasoning for each. Be concise and actionable.`;
         break;
@@ -71,8 +120,8 @@ Provide a prioritized order with brief reasoning for each. Be concise and action
       case "breakdown":
         prompt = `You are a study coach helping break down complex tasks. Break down this task into smaller, manageable subtasks that a student can complete step by step.
 
-Task: ${taskTitle}
-${taskDescription ? `Description: ${taskDescription}` : ''}
+Task: ${sanitizeForPrompt(taskTitle)}
+${taskDescription ? `Description: ${sanitizeForPrompt(taskDescription)}` : ''}
 
 Provide 3-5 specific subtasks that are actionable and measurable. Format as a numbered list with brief descriptions.`;
         break;
@@ -108,7 +157,7 @@ Provide 3-5 specific subtasks that are actionable and measurable. Format as a nu
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error("AI Gateway error:", errorText);
-      throw new Error(`AI Gateway error: ${aiResponse.status}`);
+      throw new Error("AI service unavailable");
     }
 
     const aiData = await aiResponse.json();

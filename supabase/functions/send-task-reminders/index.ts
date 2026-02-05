@@ -27,11 +27,22 @@ async function sendEmail(to: string, subject: string, html: string) {
   return response.json();
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+// Allowed origins for CORS - restrict to legitimate domains
+const allowedOrigins = [
+  Deno.env.get("SUPABASE_URL"),
+  "https://taskmaster-student.lovable.app",
+  "https://id-preview--c0b40cdd-0e87-4002-91d4-1377bae1768c.lovable.app",
+];
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin") || "";
+  const allowedOrigin = allowedOrigins.includes(origin) ? origin : "";
+  
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-function-secret",
+  };
+}
 
 interface Task {
   id: string;
@@ -62,6 +73,8 @@ function sanitizeForHtml(text: string | null | undefined): string {
 
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
+  const corsHeaders = getCorsHeaders(req);
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

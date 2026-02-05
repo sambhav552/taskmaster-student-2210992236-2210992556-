@@ -67,12 +67,13 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // Authentication: This function should only be called by pg_cron (internal) or with a valid function secret
+    // Authentication: This function REQUIRES a valid function secret for all calls
+    // pg_cron should be configured to pass the secret in the request
     const authHeader = req.headers.get("Authorization");
     const functionSecret = req.headers.get("X-Function-Secret");
     const expectedSecret = Deno.env.get("FUNCTION_SECRET");
     
-    // If called with Authorization header (external user trying to call directly), reject
+    // Reject direct user authentication attempts
     if (authHeader) {
       console.log("Direct user authentication not allowed for this function");
       return new Response(
@@ -81,25 +82,25 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
     
-    // If function secret is provided, validate it
-    if (functionSecret) {
-      if (!expectedSecret || functionSecret !== expectedSecret) {
-        console.log("Invalid function secret provided");
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      console.log("Function secret validated - manual invocation authorized");
-    } else if (!expectedSecret) {
-      // No secret configured and no secret provided - allow for pg_cron internal calls
-      console.log("No authentication - allowing pg_cron internal call");
-    } else {
-      // Secret is configured but not provided - this should be rejected for external calls
-      // However, pg_cron internal calls won't have any headers, so we allow empty headers
-      console.log("No function secret provided - assuming pg_cron internal call");
+    // FUNCTION_SECRET must be configured in production
+    if (!expectedSecret) {
+      console.log("FUNCTION_SECRET not configured - rejecting request for security");
+      return new Response(
+        JSON.stringify({ error: "Service not configured" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
     
+    // Validate the function secret
+    if (!functionSecret || functionSecret !== expectedSecret) {
+      console.log("Invalid or missing function secret");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    console.log("Function secret validated - request authorized");
     console.log("Send task reminders function invoked");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

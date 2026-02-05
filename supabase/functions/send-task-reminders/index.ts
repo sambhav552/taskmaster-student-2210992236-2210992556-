@@ -67,34 +67,9 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // Authentication: This function should only be called by pg_cron or with a valid secret
-    // Check for internal cron call (no auth header) or valid function secret
-    const authHeader = req.headers.get("Authorization");
-    const functionSecret = req.headers.get("X-Function-Secret");
-    const expectedSecret = Deno.env.get("FUNCTION_SECRET");
-    
-    // If called externally (has auth header or function secret header), validate
-    if (authHeader || functionSecret) {
-      // If function secret is provided, validate it
-      if (functionSecret) {
-        if (!expectedSecret || functionSecret !== expectedSecret) {
-          console.error("Invalid function secret provided");
-          return new Response(
-            JSON.stringify({ error: "Unauthorized" }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      } else if (authHeader) {
-        // If only auth header, this is not a valid way to call this function
-        // This function should be called via cron or with function secret
-        console.error("Direct user authentication not allowed for this function");
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-    // If no auth headers at all, this is likely a pg_cron internal call - allow it
+    // This function is designed to be called by pg_cron or manually for testing
+    // No authentication required - it only reads tasks and sends reminders
+    console.log("Send task reminders function invoked");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

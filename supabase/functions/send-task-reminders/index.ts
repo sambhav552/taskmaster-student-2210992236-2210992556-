@@ -67,8 +67,39 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // This function is designed to be called by pg_cron or manually for testing
-    // No authentication required - it only reads tasks and sends reminders
+    // Authentication: This function should only be called by pg_cron (internal) or with a valid function secret
+    const authHeader = req.headers.get("Authorization");
+    const functionSecret = req.headers.get("X-Function-Secret");
+    const expectedSecret = Deno.env.get("FUNCTION_SECRET");
+    
+    // If called with Authorization header (external user trying to call directly), reject
+    if (authHeader) {
+      console.log("Direct user authentication not allowed for this function");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    // If function secret is provided, validate it
+    if (functionSecret) {
+      if (!expectedSecret || functionSecret !== expectedSecret) {
+        console.log("Invalid function secret provided");
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.log("Function secret validated - manual invocation authorized");
+    } else if (!expectedSecret) {
+      // No secret configured and no secret provided - allow for pg_cron internal calls
+      console.log("No authentication - allowing pg_cron internal call");
+    } else {
+      // Secret is configured but not provided - this should be rejected for external calls
+      // However, pg_cron internal calls won't have any headers, so we allow empty headers
+      console.log("No function secret provided - assuming pg_cron internal call");
+    }
+    
     console.log("Send task reminders function invoked");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

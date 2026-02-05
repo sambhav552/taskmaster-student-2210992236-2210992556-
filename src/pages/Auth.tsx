@@ -60,19 +60,11 @@ const Auth = () => {
 
         const { error } = await signUp(email, password, fullName);
         if (error) {
-          if (error.message.includes('already registered')) {
-            toast({
-              variant: 'destructive',
-              title: 'Account exists',
-              description: 'This email is already registered. Please sign in instead.',
-            });
-          } else {
-            toast({
-              variant: 'destructive',
-              title: 'Sign up failed',
-              description: error.message,
-            });
-          }
+          toast({
+            variant: 'destructive',
+            title: 'Sign up failed',
+            description: 'Unable to create account. Please try again or contact support.',
+          });
         } else {
           toast({
             title: 'Check your email',
@@ -98,7 +90,7 @@ const Auth = () => {
           toast({
             variant: 'destructive',
             title: 'Sign in failed',
-            description: 'Invalid email or password. Please try again.',
+            description: 'Unable to sign in. Please check your credentials and try again.',
           });
         }
       }

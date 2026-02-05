@@ -31,8 +31,7 @@ export function useAIAssistant(): UseAIAssistantReturn {
       if (error) throw error;
 
       setSuggestion(data.suggestion);
-    } catch (error) {
-      console.error('AI Assistant error:', error);
+    } catch {
       toast({
         variant: 'destructive',
         title: 'AI Assistant Error',

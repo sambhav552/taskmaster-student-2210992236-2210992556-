@@ -27,22 +27,11 @@ async function sendEmail(to: string, subject: string, html: string) {
   return response.json();
 }
 
-// Allowed origins for CORS - restrict to legitimate domains
-const allowedOrigins = [
-  Deno.env.get("SUPABASE_URL"),
-  "https://taskmaster-student.lovable.app",
-  "https://id-preview--c0b40cdd-0e87-4002-91d4-1377bae1768c.lovable.app",
-];
-
-function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("origin") || "";
-  const allowedOrigin = allowedOrigins.includes(origin) ? origin : "";
-  
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-function-secret",
-  };
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-function-secret, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
 
 interface Task {
   id: string;
@@ -73,7 +62,6 @@ function sanitizeForHtml(text: string | null | undefined): string {
 
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
-  const corsHeaders = getCorsHeaders(req);
   
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -121,9 +109,10 @@ serve(async (req: Request): Promise<Response> => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get tasks due within the next 24 hours that haven't had reminders sent
+    // Get tasks due within the next 24 hours OR due today that haven't had reminders sent
     const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfTomorrow = new Date(startOfToday.getTime() + 2 * 24 * 60 * 60 * 1000);
     
     // Limit the number of tasks to process to prevent resource exhaustion
     const { data: tasks, error: tasksError } = await supabase
@@ -131,8 +120,8 @@ serve(async (req: Request): Promise<Response> => {
       .select("*")
       .eq("reminder_sent", false)
       .neq("status", "completed")
-      .gte("due_date", now.toISOString())
-      .lte("due_date", tomorrow.toISOString())
+      .gte("due_date", startOfToday.toISOString())
+      .lte("due_date", endOfTomorrow.toISOString())
       .limit(500); // Prevent processing too many tasks at once
 
     if (tasksError) {

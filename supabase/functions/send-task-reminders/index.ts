@@ -68,40 +68,32 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // Authentication: This function REQUIRES a valid function secret for all calls
-    // pg_cron should be configured to pass the secret in the request
-    const authHeader = req.headers.get("Authorization");
+    // Parse body for secret (used by pg_cron which passes it in the body)
+    let bodySecret: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        bodySecret = body?.function_secret || null;
+      } catch { /* no body */ }
+    }
+
     const functionSecret = req.headers.get("X-Function-Secret");
     const expectedSecret = Deno.env.get("FUNCTION_SECRET");
     
-    // Reject direct user authentication attempts
-    if (authHeader) {
-      console.log("Direct user authentication not allowed for this function");
+    let authorized = false;
+    
+    // Check function secret from header or body
+    if (expectedSecret && (functionSecret === expectedSecret || bodySecret === expectedSecret)) {
+      authorized = true;
+    }
+    
+    if (!authorized) {
+      console.log("Unauthorized request rejected");
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    // FUNCTION_SECRET must be configured in production
-    if (!expectedSecret) {
-      console.log("FUNCTION_SECRET not configured - rejecting request for security");
-      return new Response(
-        JSON.stringify({ error: "Service not configured" }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    
-    // Validate the function secret
-    if (!functionSecret || functionSecret !== expectedSecret) {
-      console.log("Invalid or missing function secret");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    
-    console.log("Function secret validated - request authorized");
     console.log("Send task reminders function invoked");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

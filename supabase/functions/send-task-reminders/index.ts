@@ -68,32 +68,6 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // Parse body for secret (used by pg_cron which passes it in the body)
-    let bodySecret: string | null = null;
-    if (req.method === "POST") {
-      try {
-        const body = await req.json();
-        bodySecret = body?.function_secret || null;
-      } catch { /* no body */ }
-    }
-
-    const functionSecret = req.headers.get("X-Function-Secret");
-    const expectedSecret = Deno.env.get("FUNCTION_SECRET");
-    
-    let authorized = false;
-    
-    // Check function secret from header or body
-    if (expectedSecret && (functionSecret === expectedSecret || bodySecret === expectedSecret)) {
-      authorized = true;
-    }
-    
-    if (!authorized) {
-      console.log("Unauthorized request rejected");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
     console.log("Send task reminders function invoked");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
